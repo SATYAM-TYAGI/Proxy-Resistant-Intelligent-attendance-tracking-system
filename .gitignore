@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+*.pyc
+__pycache__/
+.venv/
+venv/
+*.log
+
+# Local / legacy — do not publish to GitHub
+Prototype/
+project_template_UPES/
+project_template_UPES.zip
