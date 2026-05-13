@@ -1,18 +1,31 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./context/AuthContext.jsx";
 import Landing from "./pages/Landing.jsx";
 import Login from "./pages/Login.jsx";
 import RegisterStudent from "./pages/RegisterStudent.jsx";
-import RegisterFaculty from "./pages/RegisterFaculty.jsx";
 import StudentDashboard from "./pages/student/StudentDashboard.jsx";
-import FacultyDashboard from "./pages/faculty/FacultyDashboard.jsx";
-import MarkAttendance from "./pages/student/MarkAttendance.jsx";
+import StudentAttendance from "./pages/student/StudentAttendance.jsx";
+import StudentCourses from "./pages/student/StudentCourses.jsx";
+import FacultyHome from "./pages/faculty/FacultyHome.jsx";
+import FacultyTeaching from "./pages/faculty/FacultyTeaching.jsx";
+import FacultyAttendance from "./pages/faculty/FacultyAttendance.jsx";
+import AdminDashboard from "./pages/AdminDashboard.jsx";
 
-function PrivateRoute({ role, children }) {
+function defaultHome(role) {
+  if (role === "admin") return "/admin";
+  if (role === "faculty") return "/faculty";
+  return "/student";
+}
+
+function PrivateRoute({ role, allowedRoles, children }) {
   const { user, ready } = useAuth();
+  const location = useLocation();
   if (!ready) return null;
-  if (!user) return <Navigate to="/login" replace />;
-  if (role && user.role !== role) return <Navigate to={user.role === "faculty" ? "/faculty" : "/student"} replace />;
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  const roles = allowedRoles ?? (role ? [role] : null);
+  if (roles && !roles.includes(user.role)) {
+    return <Navigate to={defaultHome(user.role)} replace />;
+  }
   return children;
 }
 
@@ -22,7 +35,14 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register/student" element={<RegisterStudent />} />
-      <Route path="/register/faculty" element={<RegisterFaculty />} />
+      <Route
+        path="/admin"
+        element={
+          <PrivateRoute role="admin">
+            <AdminDashboard />
+          </PrivateRoute>
+        }
+      />
       <Route
         path="/student"
         element={
@@ -32,10 +52,18 @@ export default function App() {
         }
       />
       <Route
-        path="/student/mark/:classSessionId"
+        path="/student/courses"
         element={
           <PrivateRoute role="student">
-            <MarkAttendance />
+            <StudentCourses />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/student/attendance"
+        element={
+          <PrivateRoute role="student">
+            <StudentAttendance />
           </PrivateRoute>
         }
       />
@@ -43,7 +71,23 @@ export default function App() {
         path="/faculty"
         element={
           <PrivateRoute role="faculty">
-            <FacultyDashboard />
+            <FacultyHome />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/faculty/teaching"
+        element={
+          <PrivateRoute role="faculty">
+            <FacultyTeaching />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/faculty/attendance"
+        element={
+          <PrivateRoute role="faculty">
+            <FacultyAttendance />
           </PrivateRoute>
         }
       />

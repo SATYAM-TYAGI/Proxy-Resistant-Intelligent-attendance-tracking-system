@@ -1,27 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../../api/client.js";
 import StudentLayout from "../../components/StudentLayout.jsx";
 
 export default function StudentDashboard() {
-  const [courses, setCourses] = useState([]);
-  const [browse, setBrowse] = useState([]);
-  const [active, setActive] = useState([]);
+  const [upcoming, setUpcoming] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
   const [history, setHistory] = useState([]);
-  const [enrollId, setEnrollId] = useState("");
   const [toast, setToast] = useState(null);
 
   const load = useCallback(async () => {
-    const [c, a, h, b] = await Promise.all([
-      api.get("/courses/mine"),
-      api.get("/classes/active"),
+    const [u, e, h] = await Promise.all([
+      api.get("/classes/upcoming"),
+      api.get("/courses/my-enrollments"),
       api.get("/attendance/history"),
-      api.get("/courses/browse"),
     ]);
-    setCourses(c.data);
-    setActive(a.data);
+    setUpcoming(u.data);
+    setEnrollments(e.data);
     setHistory(h.data);
-    setBrowse(b.data);
   }, []);
 
   useEffect(() => {
@@ -34,18 +29,6 @@ export default function StudentDashboard() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const enroll = async () => {
-    if (!enrollId) return;
-    try {
-      await api.post(`/courses/${enrollId}/enroll`);
-      setToast({ type: "ok", text: "Enrolled successfully." });
-      setEnrollId("");
-      load();
-    } catch {
-      setToast({ type: "err", text: "Could not enroll (invalid id or already enrolled)." });
-    }
-  };
-
   const markLeave = async (classSessionId) => {
     try {
       await api.post("/attendance/leave", { classSessionId });
@@ -56,114 +39,83 @@ export default function StudentDashboard() {
     }
   };
 
+  const stats = useMemo(() => {
+    const present = history.filter((row) => row.status === "present").length;
+    const absent = history.filter((row) => row.status === "absent").length;
+    return { total: history.length, present, absent };
+  }, [history]);
+
+  const pending = enrollments.filter((x) => x.status === "pending");
+  const rejected = enrollments.filter((x) => x.status === "rejected");
+
   return (
-    <StudentLayout title="Student dashboard">
+    <StudentLayout title="Dashboard">
       {toast && (
         <div className="toast-stack" style={{ position: "fixed" }}>
           <div className={`toast ${toast.type === "ok" ? "ok" : "err"}`}>{toast.text}</div>
         </div>
       )}
 
-      <div className="grid-2">
-        <div className="card">
-          <h3>Active sessions</h3>
-          <p className="muted">Join only when your faculty has started the class.</p>
-          {!active.length && <p className="muted">No active class right now.</p>}
-          {active.map((s) => (
-            <div key={s._id} style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border)" }}>
-              <strong>{s.courseId?.name || "Course"}</strong>
-              <div className="muted mono" style={{ fontSize: "0.8rem" }}>
-                Session {s._id}
-              </div>
-              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
-                <Link className="btn btn-primary" to={`/student/mark/${s._id}`}>
-                  Mark attendance
-                </Link>
-                <button type="button" className="btn btn-ghost" onClick={() => markLeave(s._id)}>
-                  Mark leave
-                </button>
-              </div>
-            </div>
-          ))}
+      {(pending.length > 0 || rejected.length > 0) && (
+        <div className="card" style={{ marginBottom: "1rem", borderColor: "var(--warning)" }}>
+          <h3 style={{ marginTop: 0 }}>Course enrollment</h3>
+          {pending.length > 0 && (
+            <p className="muted">
+              You have <strong>{pending.length}</strong> course request(s) waiting for admin approval.
+            </p>
+          )}
+          {rejected.length > 0 && <p className="muted">Some requests were rejected. Contact your administrator if needed.</p>}
         </div>
+      )}
 
-        <div className="card">
-          <h3>Enrolled courses</h3>
-          {!courses.length && <p className="muted">You are not enrolled in any course yet.</p>}
-          <ul style={{ margin: 0, paddingLeft: "1.1rem" }}>
-            {courses.map((c) => (
-              <li key={c._id}>
-                <strong>{c.name}</strong>
-                {c.code ? <span className="muted"> · {c.code}</span> : null}
-              </li>
-            ))}
-          </ul>
+      <div className="dashboard-stats" style={{ marginBottom: "1rem" }}>
+        <div className="card stat-card stat-card-total">
+          <div className="stat-icon" />
+          <div>
+            <p className="muted stat-label">Sessions recorded</p>
+            <h3 className="stat-value">{stats.total}</h3>
+          </div>
         </div>
-      </div>
-
-      <div className="card" style={{ marginTop: "1rem" }}>
-        <h3>Join a course</h3>
-        <p className="muted">Paste a course ID from your faculty, or pick from the catalog below.</p>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
-          <input
-            className="input"
-            style={{ maxWidth: 320 }}
-            placeholder="Course ID"
-            value={enrollId}
-            onChange={(e) => setEnrollId(e.target.value)}
-          />
-          <button type="button" className="btn btn-ghost" onClick={enroll}>
-            Enroll
-          </button>
+        <div className="card stat-card stat-card-success">
+          <div className="stat-icon" />
+          <div>
+            <p className="muted stat-label">Present</p>
+            <h3 className="stat-value">{stats.present}</h3>
+          </div>
         </div>
-        <div style={{ marginTop: "1rem" }}>
-          <h4 style={{ fontSize: "0.95rem" }}>Catalog</h4>
-          <div className="mono muted" style={{ maxHeight: 160, overflow: "auto" }}>
-            {browse.map((c) => (
-              <div key={c._id} style={{ marginBottom: "0.35rem" }}>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem" }}
-                  onClick={() => setEnrollId(c._id)}
-                >
-                  Use ID
-                </button>{" "}
-                {c.name} {c.code ? `(${c.code})` : ""} — <span style={{ color: "var(--accent)" }}>{c._id}</span>
-              </div>
-            ))}
+        <div className="card stat-card stat-card-danger">
+          <div className="stat-icon" />
+          <div>
+            <p className="muted stat-label">Absent</p>
+            <h3 className="stat-value">{stats.absent}</h3>
           </div>
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: "1rem" }}>
-        <h3>Attendance history</h3>
-        <div style={{ overflowX: "auto" }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Course</th>
-                <th>When</th>
-                <th>%</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((row) => (
-                <tr key={row._id}>
-                  <td>{row.classSessionId?.courseId?.name || "—"}</td>
-                  <td className="muted">{row.classSessionId?.startTime ? new Date(row.classSessionId.startTime).toLocaleString() : "—"}</td>
-                  <td>{row.attendancePercentage ?? "—"}</td>
-                  <td>
-                    <span className={`badge ${row.status === "present" ? "success" : row.status === "absent" ? "danger" : "warn"}`}>
-                      {row.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!history.length && <p className="muted">No records yet.</p>}
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Timetable</h3>
+        <p className="muted">
+          Upcoming classes. Mark attendance on the <strong>classroom tablet</strong> when your teacher starts the session. Use{" "}
+          <strong>Mark leave</strong> here after you leave an active class.
+        </p>
+        {!upcoming.length && <p className="muted">No upcoming classes.</p>}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+          {upcoming.map((s) => (
+            <div key={s._id} className="session-row">
+              <strong>{s.subjectId?.name || "Subject"}</strong> · {s.courseId?.name}
+              <div className="muted" style={{ fontSize: "0.85rem" }}>
+                {new Date(s.startTime).toLocaleString()} · Room <strong>{s.classroom}</strong> ·{" "}
+                <span className={s.status === "active" ? "badge success" : "badge warn"}>{s.status}</span>
+              </div>
+              {s.status === "active" && (
+                <div style={{ marginTop: "0.5rem" }}>
+                  <button type="button" className="btn btn-ghost" onClick={() => markLeave(s._id)}>
+                    Mark leave
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
     </StudentLayout>

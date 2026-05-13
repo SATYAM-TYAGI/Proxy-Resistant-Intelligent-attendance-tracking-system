@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import multer from "multer";
 import { User } from "../models/User.js";
+import { Course } from "../models/Course.js";
+import { CourseEnrollment } from "../models/CourseEnrollment.js";
 import { extractRegistrationMultipart } from "../services/aiService.js";
 
 const upload = multer({
@@ -20,14 +22,18 @@ function signToken(user) {
 
 router.post("/register/student", upload.fields([{ name: "selfie", maxCount: 1 }, { name: "video", maxCount: 1 }]), async (req, res) => {
   try {
-    const { name, sapId, email, password } = req.body;
-    if (!name || !sapId || !email || !password) {
+    const { name, sapId, email, password, courseId } = req.body;
+    if (!name || !sapId || !email || !password || !courseId) {
       return res.status(400).json({ error: "missing_fields" });
     }
     const selfie = req.files?.selfie?.[0];
     const video = req.files?.video?.[0];
     if (!selfie || !video) {
       return res.status(400).json({ error: "missing_files" });
+    }
+    const course = await Course.findById(String(courseId).trim());
+    if (!course) {
+      return res.status(400).json({ error: "invalid_course" });
     }
     const exists = await User.findOne({ $or: [{ email }, { sapId }] });
     if (exists) return res.status(409).json({ error: "duplicate_user" });
@@ -45,6 +51,21 @@ router.post("/register/student", upload.fields([{ name: "selfie", maxCount: 1 },
       faceEmbedding: ai.primary_embedding,
       faceGallery: ai.gallery_embeddings || [],
     });
+
+    try {
+      await CourseEnrollment.create({
+        studentId: user._id,
+        courseId: course._id,
+        status: "pending",
+      });
+    } catch (e) {
+      if (e.code === 11000) {
+        await User.deleteOne({ _id: user._id });
+        return res.status(409).json({ error: "enrollment_exists" });
+      }
+      throw e;
+    }
+
     const token = signToken(user);
     return res.json({
       token,
@@ -53,53 +74,6 @@ router.post("/register/student", upload.fields([{ name: "selfie", maxCount: 1 },
         name: user.name,
         role: user.role,
         sapId: user.sapId,
-        email: user.email,
-      },
-    });
-  } catch (e) {
-    console.error(e);
-    if (e.code === "ECONNREFUSED") {
-      return res.status(503).json({ error: "ai_service_unavailable" });
-    }
-    return res.status(500).json({ error: "server_error" });
-  }
-});
-
-router.post("/register/faculty", upload.fields([{ name: "selfie", maxCount: 1 }, { name: "video", maxCount: 1 }]), async (req, res) => {
-  try {
-    const { name, facultyId, email, password } = req.body;
-    if (!name || !facultyId || !email || !password) {
-      return res.status(400).json({ error: "missing_fields" });
-    }
-    const selfie = req.files?.selfie?.[0];
-    const video = req.files?.video?.[0];
-    if (!selfie || !video) {
-      return res.status(400).json({ error: "missing_files" });
-    }
-    const exists = await User.findOne({ $or: [{ email }, { facultyId: String(facultyId).trim() }] });
-    if (exists) return res.status(409).json({ error: "duplicate_user" });
-
-    const ai = await extractRegistrationMultipart(selfie.buffer, video.buffer);
-    if (!ai.ok) return res.status(400).json({ error: ai.error || "face_extraction_failed" });
-
-    const passwordHash = await bcrypt.hash(password, 10);
-    const user = await User.create({
-      name,
-      facultyId: String(facultyId).trim(),
-      email: String(email).trim().toLowerCase(),
-      passwordHash,
-      role: "faculty",
-      faceEmbedding: ai.primary_embedding,
-      faceGallery: ai.gallery_embeddings || [],
-    });
-    const token = signToken(user);
-    return res.json({
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        role: user.role,
-        facultyId: user.facultyId,
         email: user.email,
       },
     });

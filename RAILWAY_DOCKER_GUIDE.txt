@@ -1,0 +1,113 @@
+# Railway + Docker + MongoDB Atlas (very simple guide)
+
+Imagine Railway is a **toy parking lot** where each **parking space** is one program. Docker is the **boxed kit** for each program so it always runs the same way. MongoDB Atlas is a **notebook in the sky** where all your data lives (separate from Railway).
+
+This project has **four boxed kits**:
+
+1. **MongoDB Atlas** (recommended) — not a Docker box on Railway; it is MongoDB’s own cloud. You only paste a connection string.
+2. **`server` (Node API)** — Docker image from `server/Dockerfile`.
+3. **`ai-service` (Python faces)** — Docker image from `ai-service/Dockerfile`.
+4. **`client` (main website)** — static files built by Node, served by Nginx (`client/Dockerfile`).
+5. **`kiosk-client` (classroom tablets)** — same pattern as client (`kiosk-client/Dockerfile`).
+
+---
+
+## Step A — Make a notebook in the sky (MongoDB Atlas)
+
+1. Go to MongoDB Atlas and create a free cluster.
+2. Create a database user (username + password). Remember the password.
+3. Network access: add `0.0.0.0/0` for learning (tighten later).
+4. Click **Connect** → **Drivers** and copy the `mongodb+srv://...` string.
+5. Put that string into Railway as **`MONGODB_URI`** on the **server** service (see Step C).
+
+---
+
+## Step B — What Docker does here (child version)
+
+Each folder `server/`, `ai-service/`, `client/`, `kiosk-client/` has a **Dockerfile**. That file is a **recipe**:
+
+- Start from a clean kitchen (`FROM node` or `FROM python`).
+- Copy only the files that belong to that program.
+- Install dependencies.
+- Say how to **start** the program (`CMD`).
+
+Railway reads the recipe, **builds** an image, and **runs** it. You do not install Node or Python by hand on Railway.
+
+---
+
+## Step C — Create services on Railway (one parking space each)
+
+In one Railway **project**, add **four services** (Atlas is separate):
+
+### 1) Service: `ai-service`
+
+- **Source:** your GitHub repo.
+- **Root directory:** `ai-service`
+- Railway detects `Dockerfile` and builds it.
+- **Port:** 8000 (already in Dockerfile).
+- **No public URL needed** if you use **private networking** between Railway services (preferred). Railway shows an internal hostname like `http://ai-service.railway.internal:8000` (the exact name appears in the UI).
+
+### 2) Service: `server`
+
+- **Root directory:** `server`
+- **Variables (environment):**
+  - `MONGODB_URI` = your Atlas string
+  - `JWT_SECRET` = long random text you invent
+  - `AI_SERVICE_URL` = internal URL of the AI service from step 1 (or a public URL if you must)
+  - `PORT` is usually set automatically by Railway — your code already reads `process.env.PORT`
+
+### 3) Service: `client` (main portal)
+
+- **Root directory:** `client`
+- **Build argument (optional):** if the browser talks to the API on another domain, you may need to bake `VITE_*` at build time; for Docker Compose locally, Nginx proxies `/api` to the server container so the default `/api` works.
+
+### 4) Service: `kiosk-client` (tablets)
+
+- **Root directory:** `kiosk-client`
+- **Build argument:** `VITE_API_BASE` should be the **public** URL of your API plus `/api`, e.g. `https://your-server.up.railway.app/api`, **unless** you put kiosk and API behind one domain with a reverse proxy.
+
+**Why Docker feels “more reliable”:** everyone gets the same OS libraries and the same install steps every deploy — fewer “works on my laptop” surprises.
+
+---
+
+## Step D — Connect the boxes (like plugging cables)
+
+- The **server** must reach **AI** (`AI_SERVICE_URL`).
+- The **browser** (client + kiosk) must reach **server** (`/api` or full `VITE_API_BASE`).
+- The **server** must reach **Atlas** (`MONGODB_URI`).
+
+If one cable is wrong, you see errors like `ai_service_unavailable` or Mongo timeout.
+
+---
+
+## Step E — Test locally with Docker Compose
+
+From the project root:
+
+```bash
+docker compose up --build
+```
+
+- Main site: `http://localhost:5173` (Nginx → static client; `/api` proxied to server)
+- API: through Nginx at `http://localhost:5173/api/...` or direct `http://localhost:5000/api/...`
+- Kiosk: `http://localhost:5174` (after you add the `kiosk-client` service to `docker-compose.yml` — same pattern as `client`)
+- AI: `http://localhost:8000` (internal to Docker network; server uses `http://ai-service:8000`)
+
+---
+
+## Step F — Kiosk reminder (no login)
+
+The kiosk website **does not use passwords**. It sends the header **`x-kiosk-device-id`**. Tablets must be **approved** in the admin portal with the **exact classroom text** used when scheduling classes.
+
+---
+
+## Step G — If something breaks
+
+1. Read Railway **logs** for `server` and `ai-service`.
+2. Check **`MONGODB_URI`** (password URL-encoded if it has special characters).
+3. Check **`AI_SERVICE_URL`** from the server’s point of view (private URL vs public URL).
+4. Remember: **HTTPS** is required for the camera on real phones/tablets (not `http://` except localhost).
+
+---
+
+You now have a Docker-first mental model, a Railway layout, and Atlas as the shared database. Use `docker-compose.yml` for practice; use Railway for a public deployment with the same Dockerfiles.

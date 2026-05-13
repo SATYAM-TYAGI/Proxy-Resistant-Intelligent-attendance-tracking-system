@@ -7,6 +7,9 @@ __pycache__/
 venv/
 *.log
 
+# Local AI tuning script (not for production repo)
+ai-service/local_face_probe.py
+
 # Local / legacy — do not publish to GitHub
 Prototype/
 project_template_UPES/

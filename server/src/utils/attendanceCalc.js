@@ -1,10 +1,15 @@
 /**
  * Duration-based attendance: compare time in class window vs scheduled length.
- * Active sessions use `asOf` (default now) when exit is unknown.
+ * When `session.kioskStartTime` is set (class started early from kiosk), it replaces scheduled start for metrics.
  */
 
+function effectiveStartMs(session) {
+  const t = session.kioskStartTime || session.startTime;
+  return new Date(t).getTime();
+}
+
 export function computeAttendanceMetrics(session, entryTime, exitTime, asOf = new Date()) {
-  const start = new Date(session.startTime).getTime();
+  const start = effectiveStartMs(session);
   const end = new Date(session.endTime).getTime();
   const planned = Math.max(1, end - start);
   const nowMs = new Date(asOf).getTime();

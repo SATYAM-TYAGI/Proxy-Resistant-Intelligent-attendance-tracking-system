@@ -302,6 +302,29 @@ Open **`http://127.0.0.1:5173`** — Vite proxies **`/api`** to the Node server.
 3. Student: **enroll** (course id) → **Mark attendance**; optional **Mark leave**.
 4. Faculty: **End** session → review **summary** / **manual** rows.
 
+### 5. Run with Docker (recommended for containerized setup)
+
+From the repository root:
+
+```powershell
+cd "e:\Proxy Resitant Attendance Tracking System"
+docker compose up --build
+```
+
+Services:
+
+- Frontend (Nginx + built React): **`http://127.0.0.1:5173`**
+- Node API: **`http://127.0.0.1:5000`**
+- AI service: **`http://127.0.0.1:8000`**
+- MongoDB: **`mongodb://127.0.0.1:27017/prats`**
+
+Notes:
+
+- In Docker, backend uses `MONGODB_URI=mongodb://mongo:27017/prats` and `AI_SERVICE_URL=http://ai-service:8000`.
+- Replace the default `JWT_SECRET` in `docker-compose.yml` before production.
+- Stop and remove containers with `docker compose down`.
+- To also remove MongoDB volume data: `docker compose down -v`.
+
 ---
 
 ## API summary

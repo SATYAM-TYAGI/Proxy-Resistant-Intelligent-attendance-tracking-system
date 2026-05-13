@@ -10,6 +10,8 @@ export default function StudentLayout({ children, title }) {
         <NavLink to="/student" end>
           Dashboard
         </NavLink>
+        <NavLink to="/student/attendance">Attendance</NavLink>
+        <NavLink to="/student/courses">Courses</NavLink>
         <button type="button" className="btn btn-ghost" style={{ marginTop: "auto", width: "100%" }} onClick={logout}>
           Log out
         </button>

@@ -3,111 +3,46 @@ import { Course } from "../models/Course.js";
 import { ClassSession } from "../models/ClassSession.js";
 import { Attendance } from "../models/Attendance.js";
 import { User } from "../models/User.js";
+import { ProxyAttempt } from "../models/ProxyAttempt.js";
 import { authRequired, requireRole } from "../middleware/auth.js";
-import { markAttendance } from "../services/aiService.js";
 import { computeAttendanceMetrics } from "../utils/attendanceCalc.js";
 
 const router = express.Router();
 router.use(authRequired);
 
-router.post("/mark-ai", requireRole("student"), async (req, res) => {
-  const { classSessionId, frames } = req.body;
-  if (!classSessionId || !Array.isArray(frames) || frames.length < 3) {
-    return res.status(400).json({ error: "invalid_payload" });
-  }
+const MAX_SCREENSHOT_B64 = 450_000;
 
-  const session = await ClassSession.findById(classSessionId).populate("courseId");
-  if (!session || session.status !== "active") {
-    return res.status(400).json({ error: "no_active_class" });
-  }
-  const course = session.courseId;
-  if (!course.studentIds.some((id) => id.toString() === req.user.id)) {
-    return res.status(403).json({ error: "not_enrolled" });
-  }
+function effectiveStartTime(session) {
+  return session.kioskStartTime || session.startTime;
+}
 
-  const students = await User.find({
-    _id: { $in: course.studentIds },
-    role: "student",
-    faceEmbedding: { $exists: true, $ne: [] },
-  }).select("sapId name faceEmbedding");
+function sessionPlannedMs(session) {
+  return Math.max(1, new Date(session.endTime).getTime() - new Date(effectiveStartTime(session)).getTime());
+}
 
-  const payload = students
-    .filter((u) => u.faceEmbedding?.length)
-    .map((u) => ({
-      sap_id: u.sapId,
-      name: u.name,
-      embedding: u.faceEmbedding,
-    }));
+function pickScreenshot(frames) {
+  if (!Array.isArray(frames) || !frames.length) return "";
+  const mid = frames[Math.floor(frames.length / 2)];
+  const s = typeof mid === "string" ? mid : "";
+  if (s.length > MAX_SCREENSHOT_B64) return s.slice(0, MAX_SCREENSHOT_B64);
+  return s;
+}
 
-  if (!payload.length) {
-    return res.status(400).json({ error: "no_enrolled_faces" });
-  }
-
-  let ai;
+async function logProxyAttempt({ classSessionId, studentId, reason, frames, guessSapId = "" }) {
   try {
-    ai = await markAttendance(frames, payload);
-  } catch (e) {
-    console.error(e);
-    if (e.code === "ECONNREFUSED") {
-      return res.status(503).json({ error: "ai_service_unavailable" });
-    }
-    return res.status(500).json({ error: "ai_error" });
-  }
-
-  if (ai.result === "liveness_failed") {
-    return res.json({ result: "liveness_failed" });
-  }
-  if (ai.result === "no_face") {
-    return res.json({ result: "no_face", detail: ai.detail });
-  }
-  if (ai.result === "unknown") {
-    return res.json({ result: "unknown", confidence: ai.confidence });
-  }
-  if (ai.result !== "success") {
-    return res.json({ result: "unknown" });
-  }
-
-  const me = await User.findById(req.user.id);
-  if (!me || me.sapId !== ai.sap_id) {
-    return res.json({ result: "unknown", detail: "identity_mismatch" });
-  }
-
-  const now = new Date();
-  let record = await Attendance.findOne({
-    studentId: req.user.id,
-    classSessionId: session._id,
-  });
-  if (!record) {
-    record = await Attendance.create({
-      studentId: req.user.id,
-      classSessionId: session._id,
-      entryTime: now,
-      status: "pending",
-      plannedDurationMs: 0,
+    const screenshotBase64 = pickScreenshot(frames);
+    await ProxyAttempt.create({
+      classSessionId,
+      studentId: studentId || undefined,
+      reason,
+      guessSapId: String(guessSapId || "").slice(0, 64),
+      screenshotBase64,
+      read: false,
     });
-  } else if (!record.entryTime) {
-    record.entryTime = now;
-    await record.save();
+  } catch (e) {
+    console.error("proxy_attempt_log_failed", e.message);
   }
-
-  const metrics = computeAttendanceMetrics(session, record.entryTime, record.exitTime);
-  record.plannedDurationMs = metrics.plannedDurationMs;
-  record.attendedDurationMs = metrics.attendedDurationMs;
-  record.attendancePercentage = metrics.attendancePercentage;
-  if (!record.manualOverride) {
-    record.status = session.status === "active" ? "pending" : metrics.status;
-  }
-  await record.save();
-
-  return res.json({
-    result: "attendance_marked",
-    name: ai.name,
-    sap_id: ai.sap_id,
-    entryTime: record.entryTime,
-    attendancePercentage: record.attendancePercentage,
-    status: record.status,
-  });
-});
+}
 
 router.post("/leave", requireRole("student"), async (req, res) => {
   const { classSessionId } = req.body;
@@ -144,7 +79,8 @@ router.post("/manual", requireRole("faculty"), async (req, res) => {
     return res.status(400).json({ error: "student_not_in_course" });
   }
 
-  const planned = Math.max(1, new Date(session.endTime) - new Date(session.startTime));
+  const planned = sessionPlannedMs(session);
+  const effStart = effectiveStartTime(session);
   let record = await Attendance.findOne({ classSessionId, studentId });
 
   if (present) {
@@ -154,7 +90,7 @@ router.post("/manual", requireRole("faculty"), async (req, res) => {
         classSessionId,
         manualOverride: true,
         status: "present",
-        entryTime: session.startTime,
+        entryTime: effStart,
         exitTime: session.endTime,
         plannedDurationMs: planned,
         attendedDurationMs: planned,
@@ -163,7 +99,7 @@ router.post("/manual", requireRole("faculty"), async (req, res) => {
     } else {
       record.manualOverride = true;
       record.status = "present";
-      record.entryTime = record.entryTime || session.startTime;
+      record.entryTime = record.entryTime || effStart;
       record.exitTime = session.endTime;
       record.plannedDurationMs = planned;
       record.attendedDurationMs = planned;
@@ -201,24 +137,187 @@ router.post("/manual", requireRole("faculty"), async (req, res) => {
   return res.json(record);
 });
 
+router.post("/manual-batch", requireRole("faculty"), express.json(), async (req, res) => {
+  const { classSessionId, decisions } = req.body || {};
+  if (!classSessionId || !Array.isArray(decisions) || !decisions.length) {
+    return res.status(400).json({ error: "invalid_payload" });
+  }
+  const session = await ClassSession.findById(classSessionId);
+  if (!session || session.facultyId.toString() !== req.user.id) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+  const course = await Course.findById(session.courseId);
+  const planned = sessionPlannedMs(session);
+  const effStart = effectiveStartTime(session);
+
+  for (const row of decisions) {
+    const studentId = row?.studentId;
+    const present = Boolean(row?.present);
+    if (!studentId || !course.studentIds.some((id) => id.toString() === studentId)) continue;
+
+    let record = await Attendance.findOne({ classSessionId, studentId });
+    if (present) {
+      if (!record) {
+        await Attendance.create({
+          studentId,
+          classSessionId,
+          manualOverride: true,
+          status: "present",
+          entryTime: effStart,
+          exitTime: session.endTime,
+          plannedDurationMs: planned,
+          attendedDurationMs: planned,
+          attendancePercentage: 100,
+        });
+      } else {
+        record.manualOverride = true;
+        record.status = "present";
+        record.entryTime = record.entryTime || effStart;
+        record.exitTime = session.endTime;
+        record.plannedDurationMs = planned;
+        record.attendedDurationMs = planned;
+        record.attendancePercentage = 100;
+        await record.save();
+      }
+    } else {
+      const now = new Date();
+      if (!record) {
+        await Attendance.create({
+          studentId,
+          classSessionId,
+          manualOverride: true,
+          status: "absent",
+          entryTime: now,
+          exitTime: now,
+          plannedDurationMs: planned,
+          attendedDurationMs: 0,
+          attendancePercentage: 0,
+        });
+      } else {
+        record.manualOverride = true;
+        record.status = "absent";
+        if (!record.entryTime) record.entryTime = now;
+        record.exitTime = record.exitTime || now;
+        const m = computeAttendanceMetrics(session, record.entryTime, record.exitTime);
+        record.plannedDurationMs = m.plannedDurationMs;
+        record.attendedDurationMs = m.attendedDurationMs;
+        record.attendancePercentage = m.attendancePercentage;
+        record.status = "absent";
+        await record.save();
+      }
+    }
+  }
+
+  return res.json({ ok: true });
+});
+
+router.get("/security/proxy-attempts", requireRole("faculty"), async (req, res) => {
+  const mine = await ClassSession.find({ facultyId: req.user.id }).select("_id").lean();
+  const ids = mine.map((x) => x._id);
+  const list = await ProxyAttempt.find({ classSessionId: { $in: ids } })
+    .sort({ createdAt: -1 })
+    .limit(80)
+    .populate("studentId", "name sapId email")
+    .populate({
+      path: "classSessionId",
+      select: "classroom startTime endTime subjectId courseId",
+      populate: [
+        { path: "subjectId", select: "name code" },
+        { path: "courseId", select: "name code" },
+      ],
+    })
+    .lean();
+  return res.json(list);
+});
+
+router.post("/security/proxy-attempts/:id/read", requireRole("faculty"), express.json(), async (req, res) => {
+  const row = await ProxyAttempt.findById(req.params.id).populate("classSessionId", "facultyId classroom startTime");
+  if (!row || !row.classSessionId) return res.status(404).json({ error: "not_found" });
+  if (row.classSessionId.facultyId.toString() !== req.user.id) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+  row.read = true;
+  await row.save();
+  return res.json({ ok: true });
+});
+
 router.get("/history", requireRole("student"), async (req, res) => {
   const list = await Attendance.find({ studentId: req.user.id })
-    .populate({ path: "classSessionId", populate: { path: "courseId", select: "name code" } })
+    .populate({
+      path: "classSessionId",
+      populate: [
+        { path: "courseId", select: "name code" },
+        { path: "subjectId", select: "name code" },
+      ],
+    })
     .sort({ createdAt: -1 })
     .limit(100)
     .lean();
   return res.json(list);
 });
 
+router.get("/my-subject-summary", requireRole("student"), async (req, res) => {
+  const rows = await Attendance.find({ studentId: req.user.id })
+    .populate({
+      path: "classSessionId",
+      select: "subjectId courseId",
+      populate: [
+        { path: "subjectId", select: "name code" },
+        { path: "courseId", select: "name code" },
+      ],
+    })
+    .lean();
+
+  const map = new Map();
+  for (const row of rows) {
+    const sid = row.classSessionId?.subjectId?._id?.toString();
+    if (!sid) continue;
+    if (!map.has(sid)) {
+      map.set(sid, {
+        subjectId: row.classSessionId.subjectId._id,
+        subjectName: row.classSessionId.subjectId.name,
+        subjectCode: row.classSessionId.subjectId.code || "",
+        courseName: row.classSessionId.courseId?.name || "",
+        courseCode: row.classSessionId.courseId?.code || "",
+        total: 0,
+        present: 0,
+        sumPct: 0,
+        n: 0,
+      });
+    }
+    const m = map.get(sid);
+    m.total += 1;
+    if (row.status === "present") m.present += 1;
+    m.sumPct += Number(row.attendancePercentage) || 0;
+    m.n += 1;
+  }
+
+  const list = [...map.values()].map((x) => ({
+    subjectId: x.subjectId,
+    subjectName: x.subjectName,
+    subjectCode: x.subjectCode,
+    courseName: x.courseName,
+    courseCode: x.courseCode,
+    sessionsRecorded: x.total,
+    presentSessions: x.present,
+    avgAttendancePercentage: x.n ? Math.round((x.sumPct / x.n) * 100) / 100 : 0,
+  }));
+  return res.json(list);
+});
+
 router.get("/summary/:classSessionId", requireRole("faculty"), async (req, res) => {
-  const session = await ClassSession.findById(req.params.classSessionId).populate("courseId", "name code");
+  const session = await ClassSession.findById(req.params.classSessionId)
+    .populate("subjectId", "name code")
+    .populate("courseId", "name code");
   if (!session || session.facultyId.toString() !== req.user.id) {
     return res.status(404).json({ error: "not_found" });
   }
+  const course = await Course.findById(session.courseId).populate("studentIds", "name sapId email");
   const rows = await Attendance.find({ classSessionId: session._id })
     .populate("studentId", "name sapId email")
     .lean();
-  return res.json({ session, rows });
+  const enrolledStudents = course?.studentIds || [];
+  return res.json({ session, rows, enrolledStudents });
 });
 
 export default router;

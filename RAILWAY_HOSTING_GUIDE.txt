@@ -1,0 +1,195 @@
+# How to run and host everything on Railway (simple guide)
+
+This file is written for someone who has never deployed a full-stack app before. Read it slowly from top to bottom.
+
+---
+
+## 1. What you actually have (picture this in your head)
+
+Think of four separate programs that work together:
+
+1. **MongoDB Atlas** — This is the shared notebook where all users, classes, attendance, tablet registrations, and security alerts are stored. It lives in the cloud (you do not install Mongo on Railway for production).
+
+2. **Node API (`server/`)** — The brain. The websites talk to this over HTTP paths starting with `/api`. It checks passwords, saves attendance, talks to the AI service, and stores proxy-attempt screenshots in MongoDB.
+
+3. **Python AI service (`ai-service/`)** — The face + liveness calculator. The Node server calls it privately. It must run where the API can reach it (same Railway project as a second service, or another host).
+
+4. **Two React websites**
+   - **Main portal (`client/`)** — Students, faculty, admin dashboards. **There is no “mark attendance” page here anymore.**
+   - **Classroom kiosk (`kiosk-client/`)** — Only for tablets in a room. Students and teachers log in here, the tablet sends a `device id` header, and the server only shows classes for that room.
+
+There is also a tiny **Android wrapper** (`kiosk-android/`) that is not a separate backend. It is only a full-screen browser that opens your kiosk website and appends the tablet’s Android device id to the URL so the kiosk web app locks onto that id.
+
+---
+
+## 2. MongoDB Atlas (moving away from Compass-only local Mongo)
+
+Compass is just a desktop **viewer**. Atlas is the same database technology (MongoDB) but hosted by MongoDB Inc.
+
+**Steps (very literal):**
+
+1. Go to https://www.mongodb.com/cloud/atlas and create a free cluster.
+2. Create a database user (username + password). **Save the password** — you cannot see it again.
+3. Under **Network Access**, add `0.0.0.0/0` while testing (allows Railway to connect). For stricter security later, restrict to Railway outbound IPs (advanced).
+4. Click **Connect** on your cluster → **Drivers** → copy the connection string. It looks like:
+   `mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/prats?retryWrites=true&w=majority`
+5. Replace `USER` and `PASSWORD` with your real values. If your password has special characters, you must **URL-encode** them (for example `@` becomes `%40`).
+
+Put that full string in Railway as `MONGODB_URI` for the Node service (see section 5).
+
+---
+
+## 3. How the classroom tablet story works (matches your requirements)
+
+1. Tablet opens the **kiosk** website (or the Android wrapper). It registers a **device id** (`POST /api/kiosk/register`).
+2. On the **admin** dashboard (main portal), the device appears under **Classroom tablets**. The admin types the **exact classroom label** (same text faculty use when scheduling, e.g. `Hall A-101`) and clicks **Approve**.
+3. A teacher schedules a class with that same classroom string on the **faculty** dashboard (main portal).
+4. On the tablet, the teacher logs into the **kiosk** site, sees **only** today’s sessions for that room, opens the session, and runs **Verify & start class** (face check).
+5. Each student logs in on the same tablet, sees the same filtered list, and may mark attendance **once** per session while it is active.
+6. If the system thinks someone tried to cheat (liveness failed, unknown face, or face does not match the signed-in student), it saves a **JPEG snapshot** (middle frame) in MongoDB and the teacher sees it under **Security: possible proxy attempts** on the faculty dashboard.
+
+---
+
+## 4. Running everything on your own PC (sanity check before Railway)
+
+You need **Node.js**, **npm**, and **Python 3.10+** with the AI dependencies installed per `ai-service/README` or Dockerfile.
+
+Open **four** terminals:
+
+**Terminal A — AI**
+
+```bash
+cd ai-service
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+**Terminal B — API**
+
+```bash
+cd server
+copy .env.example .env
+# Edit .env: set MONGODB_URI to Atlas or local Mongo, AI_SERVICE_URL=http://127.0.0.1:8000
+npm install
+npm run dev
+```
+
+**Terminal C — Main website**
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Visit `http://localhost:5173` — log in as admin (seeded on first DB start — see `.env.example`).
+
+**Terminal D — Kiosk website**
+
+```bash
+cd kiosk-client
+npm install
+npm run dev
+```
+
+Visit `http://localhost:5174` — the tablet shows its device id until an admin approves it under **Classroom tablets**. The kiosk has **no login**: faculty **start class** with their face, then students are matched **only from the camera**.
+
+**Android wrapper (optional local test):**
+
+1. Install Android Studio.
+2. Open the folder `kiosk-android`.
+3. Edit `app/src/main/res/values/strings.xml` → `kiosk_base_url` should be `http://10.0.2.2:5174` for the emulator (special alias to your PC) or your LAN IP for a real tablet on Wi‑Fi.
+4. Run on a device. The app opens `/device?nativeDevice=...` so the kiosk locks to that hardware id.
+
+---
+
+## 5. Deploying on Railway (recommended layout)
+
+Railway can run **multiple services** in one project.
+
+### Service 1 — `prats-api` (Node)
+
+- **Root directory:** `server`
+- **Build command:** `npm install`
+- **Start command:** `npm start`
+- **Variables**
+  - `MONGODB_URI` — Atlas connection string
+  - `JWT_SECRET` — long random string (generate one and never commit it)
+  - `AI_SERVICE_URL` — internal URL of the Python service (example below)
+  - `PORT` — Railway sets this automatically; your code already uses `process.env.PORT`
+  - Optional seeding vars from `.env.example` for first admin
+
+### Service 2 — `prats-ai` (Python)
+
+- **Root directory:** `ai-service`
+- **Build:** use the provided `Dockerfile` or `pip install -r requirements.txt` in a Nixpacks custom command
+- **Start:** `uvicorn main:app --host 0.0.0.0 --port 8000`
+- **Private networking:** Railway private hostname like `http://prats-ai.railway.internal:8000` (exact name is shown in the Railway UI). Put that value in **`AI_SERVICE_URL`** on the Node service.
+
+### Service 3 — `prats-web` (main React static site)
+
+Easiest pattern: **build with Node**, **serve with a static server** or use Railway’s static hosting.
+
+Example build:
+
+```bash
+cd client
+npm install
+npm run build
+```
+
+The `dist/` folder is static files. Point Railway static hosting at `client/dist` **or** use `nginx` / `caddy` Docker image.
+
+Set **`VITE_` variables at build time** if you bake public URLs (optional). The default `vite` build uses `/api` relative paths — then you must put the main site and API **on the same public domain** behind a reverse proxy, **or** configure a full public API URL in the client (requires a small code change to axios `baseURL`). Simplest for beginners: **one domain** with a reverse proxy: `/` → static site, `/api` → Node.
+
+### Service 4 — `prats-kiosk` (kiosk React site)
+
+Same as main web, but build from `kiosk-client/`.
+
+Give it its own subdomain, for example `https://kiosk.yourdomain.com`.
+
+Set `VITE_API_BASE=https://api.yourdomain.com/api` **before** `npm run build` if the kiosk is hosted on a different origin than the API.
+
+### CORS note
+
+The Node app currently uses `cors({ origin: true, credentials: true })`, which reflects the request origin. That is permissive enough for two static sites on different Railway URLs while you are learning. Tighten to explicit origins in real production.
+
+---
+
+## 6. After deploy — checklist that proves it “works perfectly”
+
+1. Open main site → admin login works.
+2. Register kiosk device (`/device` on kiosk URL) → device row appears → approve with classroom.
+3. Faculty creates a class with **the same** classroom string and correct times (today).
+4. Kiosk shows that class only if tablet is approved for that room.
+5. Faculty starts session from kiosk → status becomes `active`.
+6. Student marks from kiosk → attendance row appears in faculty summary.
+7. Try a wrong face on purpose → faculty sees a new security card with an image.
+
+---
+
+## 7. Common beginner mistakes (read this twice)
+
+- **Classroom mismatch:** `A-101` and `a-101` are treated the same (case and extra spaces are normalized), but `Hall A-101` and `A-101` are **different**. The admin must approve the tablet with the same label faculty type when scheduling.
+- **Forgot AI service:** Node returns `ai_service_unavailable` — always deploy AI next to API.
+- **HTTPS camera:** Browsers only allow webcam on **secure contexts** (`https://` or `localhost`). Your Railway URLs must be HTTPS.
+- **Two websites:** Do not confuse the main portal URL with the kiosk URL on tablets.
+
+---
+
+## 8. Where configuration lives (quick map)
+
+| Piece | Where |
+| --- | --- |
+| Database connection | `MONGODB_URI` in Railway for Node |
+| AI location | `AI_SERVICE_URL` in Railway for Node |
+| Kiosk → API URL | `VITE_API_BASE` at **build time** for `kiosk-client` if kiosk and API are on different domains |
+| Android → kiosk URL | `kiosk-android/app/src/main/res/values/strings.xml` → `kiosk_base_url` |
+
+---
+
+You now have: relaxed liveness + slightly lower face threshold, Atlas-ready configuration, a separate kiosk web app with device + room binding, proxy alerts with screenshots for teachers, manual attendance after class from the faculty portal, a refreshed portal-like UI on the main app, and an Android shell that simply opens the kiosk site with a stable hardware id.
+
+If anything in Railway’s UI wording changes, follow the same ideas: **database in Atlas**, **Node + AI + two static frontends**, **private URL between Node and AI**.

@@ -24,7 +24,7 @@ def check_liveness(frames_bgr: list[np.ndarray], bboxes: list[np.ndarray | None]
     bboxes: per-frame face bbox [x1,y1,x2,y2] or None.
     """
     valid = [(f, b) for f, b in zip(frames_bgr, bboxes) if b is not None and len(b) >= 4]
-    if len(valid) < 4:
+    if len(valid) < 3:
         return False
 
     centers = []
@@ -45,8 +45,8 @@ def check_liveness(frames_bgr: list[np.ndarray], bboxes: list[np.ndarray | None]
     cx = np.array([c[0] for c in centers])
     cy = np.array([c[1] for c in centers])
     motion = float(np.std(cx) + np.std(cy))
-    texture_ok = float(np.mean(sharp)) > 35.0
-    motion_ok = motion > 4.0
-    flicker_ok = (float(np.mean(diffs)) > 2.0) if diffs else False
+    texture_ok = float(np.mean(sharp)) > 22.0
+    motion_ok = motion > 2.5
+    flicker_ok = (float(np.mean(diffs)) > 1.0) if diffs else False
 
-    return texture_ok and motion_ok and flicker_ok
+    return (texture_ok and motion_ok) or (motion_ok and flicker_ok) or (texture_ok and flicker_ok)

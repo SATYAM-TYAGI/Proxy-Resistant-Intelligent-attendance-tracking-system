@@ -8,8 +8,10 @@ export default function FacultyLayout({ children, title }) {
       <aside className="sidebar">
         <div className="brand">PRATS · Faculty</div>
         <NavLink to="/faculty" end>
-          Overview
+          Dashboard
         </NavLink>
+        <NavLink to="/faculty/teaching">Add courses & classes</NavLink>
+        <NavLink to="/faculty/attendance">Manage attendance</NavLink>
         <button type="button" className="btn btn-ghost" style={{ marginTop: "auto", width: "100%" }} onClick={logout}>
           Log out
         </button>

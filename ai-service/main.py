@@ -56,7 +56,7 @@ class StudentRef(BaseModel):
 class MarkAttendanceBody(BaseModel):
     frames: list[str] = Field(..., description="JPEG base64 (no data: prefix)")
     students: list[StudentRef]
-    threshold: float = 0.45
+    threshold: float = 0.38
 
 
 @app.get("/health")
@@ -88,7 +88,7 @@ def mark_attendance(body: MarkAttendanceBody) -> dict[str, Any]:
         frames_bgr.append(frame)
         bboxes.append(np.asarray(face.bbox, dtype=np.float32))
 
-    if len(embs) < 3:
+    if len(embs) < 2:
         return {"result": "no_face", "detail": "insufficient_faces"}
 
     if not check_liveness(frames_bgr, bboxes):

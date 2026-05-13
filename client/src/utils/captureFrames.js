@@ -2,7 +2,7 @@
  * Grab a small burst of JPEG base64 frames from a video element (no data: prefix).
  * Tuned for latency: low resolution + moderate quality.
  */
-export async function captureFramesFromVideo(videoEl, { maxWidth = 400, quality = 0.52, durationMs = 2600, minIntervalMs = 320 } = {}) {
+export async function captureFramesFromVideo(videoEl, { maxWidth = 400, quality = 0.52, durationMs = 1800, minIntervalMs = 280 } = {}) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   const frames = [];

@@ -14,7 +14,7 @@ export async function extractRegistrationMultipart(selfieBuffer, videoBuffer) {
   return data;
 }
 
-export async function markAttendance(frames, students, threshold = 0.45) {
+export async function markAttendance(frames, students, threshold = 0.38) {
   const { data } = await axios.post(
     `${base()}/mark-attendance`,
     { frames, students, threshold },

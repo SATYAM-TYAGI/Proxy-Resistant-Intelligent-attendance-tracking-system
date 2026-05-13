@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PRATS Kiosk</string>
+    <!-- Change this to your deployed kiosk site (must be https in production). Trailing slash optional. -->
+    <string name="kiosk_base_url" translatable="false">https://captivating-renewal-production-4a1a.up.railway.app/</string>
+</resources>

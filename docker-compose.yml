@@ -1,0 +1,60 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: prats-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  ai-service:
+    build:
+      context: ./ai-service
+    container_name: prats-ai
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo
+
+  server:
+    build:
+      context: ./server
+    container_name: prats-server
+    restart: unless-stopped
+    environment:
+      PORT: 5000
+      MONGODB_URI: mongodb://mongo:27017/prats
+      JWT_SECRET: change-me-in-production
+      AI_SERVICE_URL: http://ai-service:8000
+      SEED_ADMIN_EMAIL: admin@ddn.upes.ac.in
+      SEED_ADMIN_PASSWORD: admin@123
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongo
+      - ai-service
+
+  client:
+    build:
+      context: ./client
+    container_name: prats-client
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - server
+
+  kiosk-client:
+    build:
+      context: ./kiosk-client
+    container_name: prats-kiosk
+    restart: unless-stopped
+    ports:
+      - "5174:80"
+    depends_on:
+      - server
+
+volumes:
+  mongo_data:
