@@ -14,8 +14,4 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-userSchema.index({ email: 1 });
-userSchema.index({ sapId: 1 }, { sparse: true });
-userSchema.index({ facultyId: 1 }, { sparse: true });
-
 export const User = mongoose.model("User", userSchema);

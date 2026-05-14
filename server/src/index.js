@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { connectDb } from "./config/db.js";
+import { connectDb, resolveMongoUri } from "./config/db.js";
 import { ensureDefaultAdmin } from "./services/seedAdmin.js";
 import authRoutes from "./routes/auth.js";
 import courseRoutes from "./routes/courses.js";
@@ -26,7 +26,7 @@ app.use("/api/subjects", subjectRoutes);
 app.use("/api/kiosk", kioskRoutes);
 
 const port = Number(process.env.PORT || 5000);
-const uri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/prats";
+const uri = resolveMongoUri() || "mongodb://127.0.0.1:27017/prats";
 
 connectDb(uri)
   .then(() => ensureDefaultAdmin())

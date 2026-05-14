@@ -65,7 +65,6 @@ In one Railway **project**, add **four services** (Atlas is separate):
 
 - **Root directory:** `kiosk-client`
 - **Build argument:** `VITE_API_BASE` should be the **public** URL of your API plus `/api`, e.g. `https://your-server.up.railway.app/api`, **unless** you put kiosk and API behind one domain with a reverse proxy.
-
 **Why Docker feels “more reliable”:** everyone gets the same OS libraries and the same install steps every deploy — fewer “works on my laptop” surprises.
 
 ---
