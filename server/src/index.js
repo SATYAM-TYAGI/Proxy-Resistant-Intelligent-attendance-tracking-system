@@ -31,8 +31,8 @@ const uri = resolveMongoUri() || "mongodb://127.0.0.1:27017/prats";
 connectDb(uri)
   .then(() => ensureDefaultAdmin())
   .then(() => {
-    app.listen(port, () => {
-      console.log(`API listening on http://127.0.0.1:${port}`);
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`API listening on ${port}`);
     });
   })
   .catch((err) => {

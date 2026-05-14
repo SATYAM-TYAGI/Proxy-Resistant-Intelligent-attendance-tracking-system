@@ -1,0 +1,297 @@
+================================================================================
+  RAILWAY DEPLOYMENT — SUPER SIMPLE GUIDE (FOR TRUE BEGINNERS)
+================================================================================
+
+Read this slowly. You do not need to be good at coding. You only need to
+click buttons in the right order and copy-paste text in the right boxes.
+
+================================================================================
+  PART 0 — WHAT YOU ARE BUILDING (PICTURE IN YOUR HEAD)
+================================================================================
+
+Imagine four small programs in the cloud:
+
+  1) AI SERVICE     = the “face brain” (Python). It looks at photos.
+  2) SERVER         = the “main brain” (Node). It saves users, classes,
+                      attendance, and talks to the database.
+  3) CLIENT         = the normal website (for admins, teachers, students).
+  4) KIOSK-CLIENT   = a second website (for classroom tablets).
+
+Outside the cloud you also have:
+
+  5) MONGODB ATLAS  = the “notebook” where all data is stored. It is NOT
+                      on Railway. It is MongoDB’s own website.
+
+Each of 1–4 becomes its own “service” on Railway. Atlas stays separate.
+
+================================================================================
+  PART 1 — BEFORE RAILWAY: FIX YOUR ATLAS NOTEBOOK
+================================================================================
+
+Do this on the MongoDB Atlas website (not Railway yet).
+
+  Step 1.1 — Make a free cluster (if you did not already).
+
+  Step 1.2 — Create a database user (username + password). Write the
+            password somewhere safe.
+
+  Step 1.3 — Network Access: for learning, add “allow from anywhere”
+            (Atlas shows something like 0.0.0.0/0). You can tighten this
+            later when you understand security more.
+
+  Step 1.4 — Click “Connect” → “Drivers” and copy the connection string.
+            It looks like:
+            mongodb+srv://USERNAME:PASSWORD@cluster...mongodb.net/...
+            Replace USERNAME and PASSWORD with your real user.
+            If your password has special characters like @ # %, you must
+            “URL-encode” them (Google: “url encode password” and use the
+            encoded password in the string).
+
+  Keep that full string. You will paste it into Railway in Part 5
+  (server variables) as MONGODB_URI.
+
+================================================================================
+  PART 2 — PUT YOUR CODE ON GITHUB (IF IT IS NOT THERE YET)
+================================================================================
+
+Railway usually pulls code from GitHub.
+
+  Step 2.1 — Push this project to a GitHub repository you control.
+
+  Step 2.2 — Remember the repo name. You will pick it inside Railway.
+
+================================================================================
+  PART 3 — CREATE ONE RAILWAY PROJECT AND FOUR SERVICES
+================================================================================
+
+  Step 3.1 — Go to https://railway.app and log in.
+
+  Step 3.2 — Click “New Project”.
+
+  Step 3.3 — Choose “Deploy from GitHub repo” and select your repository.
+
+  Step 3.4 — Railway might create one service automatically. That is OK.
+            You will end up with FOUR services total. You add more by
+            clicking “New” → “GitHub Repo” (or “Empty Service”) and pointing
+            each one at the SAME repo but a different ROOT FOLDER.
+
+  Name idea (you can use any names, but matching names help you remember):
+    Service A: ai-service      → root folder: ai-service
+    Service B: server          → root folder: server
+    Service C: client          → root folder: client
+    Service D: kiosk-client    → root folder: kiosk-client
+
+  Step 3.5 — For EACH service, set the “Root Directory” in Railway settings
+            to the folder name above. Railway must build from the folder
+            that contains that service’s Dockerfile.
+
+  Step 3.6 — Railway should detect Docker and build from the Dockerfile.
+            Wait until each service shows a successful deploy (green).
+
+================================================================================
+  PART 4 — PORT NUMBERS (WHAT TO TYPE WHEN RAILWAY ASKS)
+================================================================================
+
+Railway sometimes asks: “What port does your app listen on?”
+
+  • ai-service      → 8000
+  • server          → let Railway set PORT if it offers; your code uses
+                      process.env.PORT. If Railway asks you to type a port
+                      and you are unsure, 5000 matches the Dockerfile hint,
+                      but many hosts inject a different PORT automatically.
+                      Rule of thumb: if the deploy works and health check
+                      passes, you are fine.
+  • client          → 80   (this is Nginx inside the container)
+  • kiosk-client    → 80   (same)
+
+================================================================================
+  PART 5 — ENVIRONMENT VARIABLES (COPY-PASTE CHEAT SHEET)
+================================================================================
+
+“Environment variables” are secret settings each program reads when it starts.
+You add them in Railway: open the service → “Variables” tab.
+
+-------------------------------------------------------------------------------
+  SERVICE: ai-service (the Python face program)
+-------------------------------------------------------------------------------
+
+  You do NOT need special variables for this project's ai-service.
+  The Dockerfile already starts the program on port 8000.
+
+  Optional later: you can add nothing here for a simple deploy.
+
+-------------------------------------------------------------------------------
+  SERVICE: server (the Node API — MOST IMPORTANT VARIABLES)
+-------------------------------------------------------------------------------
+
+  Add these (names must match exactly):
+
+  NAME              WHAT TO PUT (EXPLAINED SIMPLY)
+  --------------------------------------------------------------------------
+  MONGODB_URI       The full Atlas connection string from Part 1.
+                    (The code also accepts MONGODB_URL if you prefer that name.)
+                    This is how the server talks to your “notebook”.
+
+  JWT_SECRET        Any long random text (like 32+ random letters and
+                    numbers). This locks login tokens. Do not share it.
+                    Example style: k9QmP2xL7vR4nT8wZ1cH5jF3dS6aB0eU
+                    (make your own, do not copy this exact one)
+
+  AI_SERVICE_URL    The address where the SERVER can call the AI program.
+                    Easiest for beginners on Railway:
+                    use PRIVATE networking between services in the same
+                    project. Railway shows an internal URL like:
+                    http://something.railway.internal:8000
+                    Copy the one that points to your ai-service.
+                    (If you cannot find it, use Railway’s docs search:
+                    “private networking”.)
+
+  Optional but useful:
+
+  NAME                    WHAT TO PUT
+  --------------------------------------------------------------------------
+  SEED_ADMIN_EMAIL        Email for the first admin account (optional).
+  SEED_ADMIN_PASSWORD     Password for that admin (optional).
+  SEED_ADMIN_NAME         Display name (optional).
+
+  If you skip the SEED_* ones, the server uses built-in defaults from the
+  code — change them after first login for real use.
+
+  Railway also sets PORT for you on many setups. Your server already reads
+  process.env.PORT — good.
+
+-------------------------------------------------------------------------------
+  SERVICE: client (main website — Nginx + built React files)
+-------------------------------------------------------------------------------
+
+  For a simple first deploy, you often need NO variables here.
+
+  The website talks to the API using paths like “/api/...” on the SAME
+  domain as the client. The Nginx config in this repo tries to forward
+  “/api” to a service named “server” on the private network (same idea as
+  Docker Compose at home).
+
+  Tip: name your Node API service on Railway exactly:  server
+  That gives you the best chance that private networking matches what the
+  Nginx file expects.
+
+-------------------------------------------------------------------------------
+  SERVICE: kiosk-client (tablet website — Nginx + built React files)
+-------------------------------------------------------------------------------
+
+  Default build uses the same “/api” idea as the client.
+
+  If the kiosk site and the API are on different public addresses and
+  “/api” does not work, rebuild with a Docker build argument (advanced):
+
+  NAME            EXAMPLE VALUE
+  --------------------------------------------------------------------------
+  VITE_API_BASE   https://YOUR-SERVER-PUBLIC-URL/api
+
+  On Railway this is often done under “Docker build” / build arguments,
+  or your team adds it in the Dockerfile build stage — ask if you get
+  stuck; the default is /api.
+
+================================================================================
+  PART 6 — PUBLIC LINKS (DO YOU NEED THEM?)
+================================================================================
+
+  • ai-service
+      For learning: you can keep it PRIVATE. Only the “server” needs to
+      call it (through AI_SERVICE_URL).
+
+  • server
+      Often gets a public URL so you can test /api/health in a browser.
+      You can still restrict who uses it with login and good passwords.
+
+  • client
+      YES — you want a public link. This is the main site people open.
+
+  • kiosk-client
+      YES — you want a public HTTPS link for real tablets (camera needs
+      HTTPS on real devices, not plain http).
+
+  In Railway: open the service → “Settings” → “Networking” → generate a
+  public domain (Railway gives you a random name ending in .railway.app).
+
+================================================================================
+  PART 7 — ORDER OF WORK (DO THINGS IN THIS ORDER)
+================================================================================
+
+  1) Finish Atlas (Part 1). Have MONGODB_URI ready.
+
+  2) Create Railway project from GitHub (Part 2–3).
+
+  3) Deploy ai-service first. Wait until it is green.
+
+  4) Copy the PRIVATE URL for ai-service (with port 8000) into the
+     server service as AI_SERVICE_URL.
+
+  5) Deploy server. Add MONGODB_URI, JWT_SECRET, AI_SERVICE_URL.
+     Wait until it is green.
+
+  6) Open server’s public URL (if you made one) and visit:
+        /api/health
+     You should see something like: {"ok":true}
+     If that fails, read server logs in Railway before going on.
+
+  7) Deploy client. Set port 80 if asked. Generate a public domain.
+     Open the client URL in a browser. Try to log in as admin.
+
+  8) Deploy kiosk-client. Set port 80 if asked. Generate a public domain.
+     Open it on a tablet.
+
+================================================================================
+  PART 8 — HOW THE PIECES “TALK” (VERY SIMPLE)
+================================================================================
+
+  Atlas ←→ Server
+      The server uses MONGODB_URI. The browser never talks to Atlas
+      directly in this project.
+
+  Server ←→ AI service
+      The server uses AI_SERVICE_URL. The browser does not call the AI
+      service directly for normal flows.
+
+  Browser ←→ Client (or kiosk) ←→ Server
+      The person’s web browser loads the CLIENT or KIOSK website.
+      The JavaScript then calls “/api/...”.
+      Nginx inside that website’s container should pass “/api” to the
+      SERVER program.
+
+  If login works on the client URL, your “browser cable” is plugged in.
+
+================================================================================
+  PART 9 — IF SOMETHING BREAKS (FIRST THINGS TO CHECK)
+================================================================================
+
+  1) Railway “Logs” tab for “server”. Read red error text.
+
+  2) MONGODB_URI wrong? password not URL-encoded? Atlas network blocked?
+
+  3) AI_SERVICE_URL wrong? server cannot reach AI → face features fail.
+
+  4) Client loads but login fails with network errors?
+     Often the “/api” path is not reaching the server. Check that:
+       • server service exists and is healthy
+       • private networking is on (same Railway project)
+       • your API service name matches what Nginx expects (name it “server”)
+
+  5) Camera on tablet does not work?
+     You must use HTTPS (Railway public URL is HTTPS).
+
+================================================================================
+  PART 10 — AFTER IT WORKS (TWO MINUTE CHECKLIST)
+================================================================================
+
+  [ ] /api/health works on your API URL
+  [ ] Main client loads and you can log in
+  [ ] Kiosk URL loads on a phone/tablet over HTTPS
+  [ ] In admin: approve kiosk device and match classroom text when testing
+
+================================================================================
+  END OF GUIDE
+================================================================================
+
+You are not “dumb” if this feels like a lot. Deployment is many small steps.
+Do one part at a time, wait for green checks, then move to the next part.
