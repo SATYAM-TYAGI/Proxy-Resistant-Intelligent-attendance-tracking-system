@@ -1,0 +1,221 @@
+================================================================================
+  HOST CLIENT + KIOSK ON VERCEL (VERY SIMPLE, STEP BY STEP)
+================================================================================
+
+You already have the API (server) and the face program (ai-service) on Railway.
+Your frontends did not work on Railway because they need special wiring to talk
+to the API. On Vercel we fix that with one setting: tell the website exactly
+where your Railway API lives.
+
+This guide assumes:
+  • Your Railway SERVER has a public HTTPS link, for example:
+    https://something-production-xxxx.up.railway.app
+  • Opening https://...railway.app/api/health in a browser shows JSON like:
+    {"ok":true}
+  If /api/health does not work, fix Railway first before Vercel.
+
+================================================================================
+  PART A — WHAT YOU WILL CREATE
+================================================================================
+
+You will make TWO separate projects on Vercel:
+
+  1) MAIN WEBSITE   → folder in GitHub:  client
+  2) KIOSK WEBSITE  → folder in GitHub:  kiosk-client
+
+Each project gets its own vercel.app link (two different URLs).
+
+Both will call the SAME Railway API using a value we set in Vercel:
+
+  VITE_API_BASE = https://YOUR-RAILWAY-SERVER.up.railway.app/api
+
+(No trailing slash after “api”.)
+
+================================================================================
+  PART B — ONE SMALL CHANGE IN YOUR CODE (ALREADY DONE IN THIS REPO)
+================================================================================
+
+The main client now reads VITE_API_BASE like the kiosk already did.
+
+File: client/src/api/client.js
+  baseURL: import.meta.env.VITE_API_BASE || "/api"
+
+So on Vercel you MUST set VITE_API_BASE or the app will still try “/api” on
+the wrong host and fail.
+
+================================================================================
+  PART C — BEFORE YOU OPEN VERCEL
+================================================================================
+
+  Step C.1 — Copy your Railway API base URL (the server service public URL).
+            Example shape:
+            https://prats-server-production.up.railway.app
+
+  Step C.2 — In a browser, test:
+            https://YOUR-SERVER-URL/api/health
+            You must see {"ok":true} (or similar). If not, stop and fix Railway.
+
+  Step C.3 — Your full value for Vercel will be:
+            https://YOUR-SERVER-URL/api
+            (add “/api” at the end — that is the API prefix this project uses.)
+
+  Step C.4 — Push your latest code to GitHub (including vercel.json files in
+            client/ and kiosk-client/ if you pulled them from this project).
+
+================================================================================
+  PART D — CREATE A VERCEL ACCOUNT
+================================================================================
+
+  Step D.1 — Go to: https://vercel.com
+
+  Step D.2 — Click “Sign Up”. Use “Continue with GitHub” (easiest).
+
+  Step D.3 — When GitHub asks, allow Vercel to see your repositories.
+            You can choose “All repositories” or only this project — your choice.
+
+================================================================================
+  PART E — DEPLOY THE MAIN CLIENT (FIRST WEBSITE)
+================================================================================
+
+  Step E.1 — In Vercel, click “Add New…” → “Project”.
+
+  Step E.2 — Find your GitHub repository in the list and click “Import”.
+
+  Step E.3 — VERY IMPORTANT — “Root Directory”
+            Click “Edit” next to Root Directory.
+            Choose the folder:  client
+            (Not the repo root. Not server. The folder named client.)
+
+  Step E.4 — Framework Preset
+            Vercel usually detects “Vite”. If it says Vite, leave it.
+            If it says “Other”, pick “Vite” manually if you can.
+
+  Step E.5 — Build command
+            Default is often: npm run build
+            Leave it unless Vercel shows an error later.
+
+  Step E.6 — Output directory
+            Should be: dist
+            (Vite puts built files in dist.)
+
+  Step E.7 — Environment Variables (THIS IS THE MAGIC STEP)
+            Find the section “Environment Variables”.
+
+            Add a new variable:
+
+              Name:   VITE_API_BASE
+              Value:  https://YOUR-RAILWAY-SERVER.up.railway.app/api
+
+            Replace YOUR-RAILWAY-SERVER… with your real Railway server URL.
+
+            Check the boxes for:
+              Production
+              Preview        (optional but recommended)
+              Development    (optional)
+
+            Why: Vite bakes this value into the JavaScript at BUILD time.
+            If you skip it, the site will not find your API.
+
+  Step E.8 — Click “Deploy”.
+
+  Step E.9 — Wait until the progress bar finishes. If it turns red, click the
+            failed deployment and read the error log (often a typo in root folder).
+
+  Step E.10 — When it is green, Vercel shows you a link like:
+             https://client-xxx.vercel.app
+             Click it. You should see your login page.
+
+  Step E.11 — Try logging in. If the page loads but login says network error:
+             • Recheck VITE_API_BASE (must end with /api)
+             • Recheck Railway server is running and /api/health works
+             • Railway server must allow CORS from your Vercel domain (this
+               project’s server reflects the browser origin, so it usually works.)
+
+================================================================================
+  PART F — DEPLOY THE KIOSK CLIENT (SECOND WEBSITE)
+================================================================================
+
+Do the same steps as Part E, but change these parts:
+
+  Step F.1 — Add New… → Project → Import the SAME GitHub repo again.
+
+  Step F.2 — Root Directory: choose  kiosk-client
+            (Not client. Not server. The folder kiosk-client.)
+
+  Step F.3 — Framework: Vite, build npm run build, output dist.
+
+  Step F.4 — Environment variable (same name, same value):
+
+              Name:   VITE_API_BASE
+              Value:  https://YOUR-RAILWAY-SERVER.up.railway.app/api
+
+            Use the SAME Railway API URL as the main client.
+
+  Step F.5 — Deploy. Open the new vercel.app URL on a phone or tablet.
+
+  Step F.6 — Real cameras need HTTPS. Vercel gives you HTTPS automatically.
+            Good.
+
+================================================================================
+  PART G — vercel.json (SPA / REFRESH ON ROUTES)
+================================================================================
+
+Both client/ and kiosk-client/ include a small vercel.json file:
+
+  { "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }
+
+This fixes: you open a page like /login, refresh, and the server still shows
+the app instead of “404 Not Found”.
+
+================================================================================
+  PART H — AFTER YOU CHANGE API URL OR VARIABLES
+================================================================================
+
+VITE_* values are baked in at build time.
+
+  If you change VITE_API_BASE in Vercel:
+    → Go to Vercel project → Deployments → “Redeploy” (or push a new commit).
+
+  Changing the variable alone does NOT update old JavaScript until you rebuild.
+
+================================================================================
+  PART I — ANDROID KIOSK APP (IF YOU USE IT)
+================================================================================
+
+The native Android wrapper has its own setting for which WEBSITE to open.
+
+Open:
+  kiosk-android/app/src/main/res/values/strings.xml
+
+Set kiosk_base_url to your VERCEL kiosk URL, for example:
+  https://your-kiosk.vercel.app/
+
+================================================================================
+  PART J — QUICK TROUBLE SHOOTING
+================================================================================
+
+  Problem: Build fails “cannot find module”
+  Fix: Root directory must be exactly client or kiosk-client.
+
+  Problem: White page or 404 on refresh on a route
+  Fix: Make sure vercel.json is inside that app folder and redeploy.
+
+  Problem: Login fails, browser console shows CORS or wrong URL
+  Fix: VITE_API_BASE must be https://…railway…/api with no typo.
+
+  Problem: API works in browser but not from Vercel
+  Fix: Rare — check Railway server logs when you try login.
+
+================================================================================
+  CHECKLIST (DO IN ORDER)
+================================================================================
+
+  [ ] Railway /api/health works in browser
+  [ ] Vercel project 1: root = client, VITE_API_BASE set, deploy green
+  [ ] Vercel project 2: root = kiosk-client, VITE_API_BASE set, deploy green
+  [ ] Login works on main Vercel URL
+  [ ] Kiosk flows work on kiosk Vercel URL (HTTPS)
+
+================================================================================
+  END
+================================================================================
